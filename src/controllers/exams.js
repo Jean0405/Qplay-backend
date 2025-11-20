@@ -1,56 +1,90 @@
-import * as QuestionModel from "../models/question.js";
 import * as ExamModel from "../models/exam.js";
+import * as QuestionModel from "../models/question.js";
 import * as ExamQuestionModel from "../models/examQuestion.js";
-import * as ExamCategoryModel from "../models/examCategory.js";
 import { pool } from "../config/database.js";
 
 export const generateExam = async (req, res) => {
   try {
     const { examCategoryId, subjectId, limit = 20 } = req.body;
-    if (!examCategoryId)
-      return res.status(400).json({ message: "examCategoryId required" });
 
-    const category = await ExamCategoryModel.findById(examCategoryId);
-    if (!category)
-      return res.status(400).json({ message: "Invalid examCategoryId" });
+    if (!examCategoryId) {
+      return res.status(400).json({ message: "examCategoryId is required" });
+    }
 
+    // Convertir a números enteros
+    const categoryId = parseInt(examCategoryId);
+    const subjId = subjectId ? parseInt(subjectId) : null;
+    const limitNumber = parseInt(limit);
+
+    console.log("CONTROLLER --> ",categoryId,subjId,limitNumber);
+    
+
+    // Validar que sean números válidos
+    if (isNaN(categoryId) || isNaN(limitNumber)) {
+      return res.status(400).json({ message: "Invalid parameters" });
+    }
+
+    // Obtener preguntas aleatorias
     const questions = await QuestionModel.getRandomApproved(
-      examCategoryId,
-      subjectId,
-      limit
+      categoryId,
+      subjId,
+      limitNumber
     );
 
+    if (questions.length === 0) {
+      return res.status(404).json({ message: "No approved questions found" });
+    }
+
+    // Crear el examen
     const exam = await ExamModel.createExam({
       idUser: req.user.id,
-      idExamCategory: examCategoryId,
+      idExamCategory: categoryId,
     });
 
-    const insertRows = questions.map((q) => ({
+    // Insertar las preguntas asociadas al examen
+    const examQuestionRows = questions.map(q => ({
       idExam: exam.id,
-      idQuestion: q.id,
+      idQuestion: q.id
     }));
-    await ExamQuestionModel.insertMany(insertRows);
+    
+    await ExamQuestionModel.insertMany(examQuestionRows);
 
-    res.json({ exam, questions });
+    res.json({
+      ...exam,
+      questions,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
 export const submitExam = async (req, res) => {
-  const client = await pool.connect();
+  const client = await pool.getConnection();
   try {
     const { examId, answers } = req.body;
-    if (!examId || !Array.isArray(answers))
+    
+    console.log("SUBMIT DATA:", { examId, answers });
+    
+    if (!examId || !Array.isArray(answers) || answers.length === 0) {
       return res.status(400).json({ message: "Missing examId or answers" });
+    }
+
+    // Validar que cada respuesta tenga los campos necesarios
+    for (const ans of answers) {
+      if (!ans.questionId || !ans.selectedOption) {
+        return res.status(400).json({ 
+          message: "Each answer must have questionId and selectedOption" 
+        });
+      }
+    }
 
     const exam = await ExamModel.getById(examId);
     if (!exam || exam.idUser !== req.user.id) {
       return res.status(404).json({ message: "Exam not found" });
     }
 
-    const qIds = answers.map((a) => a.idQuestion);
+    const qIds = answers.map((a) => a.questionId);
     const questions = await QuestionModel.findByIds(qIds);
 
     const correctMap = {};
@@ -61,12 +95,12 @@ export const submitExam = async (req, res) => {
     try {
       for (const ans of answers) {
         const isCorrect =
-          correctMap[ans.idQuestion] &&
-          correctMap[ans.idQuestion] === ans.selectedOption;
+          correctMap[ans.questionId] &&
+          correctMap[ans.questionId] === ans.selectedOption;
         if (isCorrect) score += 1;
         await ExamQuestionModel.updateSelectedOption(
           examId,
-          ans.idQuestion,
+          ans.questionId,
           ans.selectedOption,
           isCorrect,
           client

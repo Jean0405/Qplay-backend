@@ -2,18 +2,6 @@ import { query } from "../config/database.js";
 
 export const insert = async (payload) => {
   const dbFields = [
-    "questiontext",
-    "optiona",
-    "optionb",
-    "optionc",
-    "optiond",
-    "correctoption",
-    "status",
-    "iduser",
-    "idexamcategory",
-    "idsubject",
-  ];
-  const payloadKeys = [
     "questionText",
     "optionA",
     "optionB",
@@ -25,13 +13,16 @@ export const insert = async (payload) => {
     "idExamCategory",
     "idSubject",
   ];
-  const values = payloadKeys.map((k) => payload[k]);
-  const params = values.map((_, i) => `$${i + 1}`).join(", ");
-  const sql = `INSERT INTO "Question" (${dbFields.join(
-    ","
-  )}) VALUES (${params}) RETURNING id, questiontext AS "questionText", status`;
+  const values = dbFields.map((k) => payload[k]);
+  const placeholders = values.map(() => "?").join(", ");
+  const sql = `INSERT INTO Question (${dbFields.join(
+    ", "
+  )}) VALUES (${placeholders})`;
   const res = await query(sql, values);
-  return res.rows[0];
+
+  // Obtener el registro recién creado
+  const newQuestion = await findById(res.rows.insertId);
+  return newQuestion;
 };
 
 export const getApprovedByCategoryAndSubject = async (
@@ -39,47 +30,64 @@ export const getApprovedByCategoryAndSubject = async (
   subjectId
 ) => {
   const sql = `SELECT id,
-    questiontext AS "questionText",
-    optiona AS "optionA",
-    optionb AS "optionB",
-    optionc AS "optionC",
-    optiond AS "optionD",
-    iduser AS "idUser",
-    createdat AS "createdAt"
-    FROM "Question"
-    WHERE idexamcategory = $1 AND idsubject = $2 AND status = 'approved'
-    ORDER BY createdat DESC`;
+    questionText,
+    optionA,
+    optionB,
+    optionC,
+    optionD,
+    idUser,
+    createdAt
+    FROM Question
+    WHERE idExamCategory = ? AND idSubject = ? AND status = 'approved'
+    ORDER BY createdAt DESC`;
   const res = await query(sql, [examCategoryId, subjectId]);
   return res.rows;
 };
 
 export const getPending = async () => {
   const res = await query(
-    `SELECT id,
-      questiontext AS "questionText",
-      optiona AS "optionA",
-      optionb AS "optionB",
-      optionc AS "optionC",
-      optiond AS "optionD",
-      correctoption AS "correctOption",
-      status,
-      iduser AS "idUser",
-      idexamcategory AS "idExamCategory",
-      idsubject AS "idSubject",
-      createdat AS "createdAt"
-      FROM "Question" WHERE status = 'pending' ORDER BY createdat ASC`
+    `SELECT 
+      q.id,
+      q.questionText,
+      q.optionA,
+      q.optionB,
+      q.optionC,
+      q.optionD,
+      q.correctOption,
+      q.status,
+      q.idUser,
+      q.idExamCategory,
+      q.idSubject,
+      q.createdAt,
+      u.username AS userName,
+      ec.name AS categoryName,
+      s.name AS subjectName
+    FROM Question q
+    INNER JOIN User u ON u.id = q.idUser
+    INNER JOIN ExamCategory ec ON ec.id = q.idExamCategory
+    INNER JOIN Subject s ON s.id = q.idSubject
+    WHERE q.status = 'pending' 
+    ORDER BY q.createdAt ASC`
   );
   return res.rows;
 };
 
 export const updateStatus = async (id, status) => {
-  await query(`UPDATE "Question" SET status = $1 WHERE id = $2`, [status, id]);
+  await query(`UPDATE Question SET status = ? WHERE id = ?`, [status, id]);
 };
 
 export const findByIds = async (ids) => {
+  // Filtrar valores undefined, null o inválidos
+  const validIds = ids.filter((id) => id !== undefined && id !== null && !isNaN(id));
+
+  if (validIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = validIds.map(() => "?").join(", ");
   const res = await query(
-    `SELECT id, correctoption AS "correctOption" FROM "Question" WHERE id = ANY($1)`,
-    [ids]
+    `SELECT id, correctOption FROM Question WHERE id IN (${placeholders})`,
+    validIds
   );
   return res.rows;
 };
@@ -87,18 +95,18 @@ export const findByIds = async (ids) => {
 export const findById = async (id) => {
   const res = await query(
     `SELECT id,
-      questiontext AS "questionText",
-      optiona AS "optionA",
-      optionb AS "optionB",
-      optionc AS "optionC",
-      optiond AS "optionD",
-      correctoption AS "correctOption",
+      questionText,
+      optionA,
+      optionB,
+      optionC,
+      optionD,
+      correctOption,
       status,
-      iduser AS "idUser",
-      idexamcategory AS "idExamCategory",
-      idsubject AS "idSubject",
-      createdat AS "createdAt"
-      FROM "Question" WHERE id = $1`,
+      idUser,
+      idExamCategory,
+      idSubject,
+      createdAt
+      FROM Question WHERE id = ?`,
     [id]
   );
   return res.rows[0];
@@ -109,21 +117,32 @@ export const getRandomApproved = async (
   subjectId,
   limit = 20
 ) => {
+  // Asegurar que limit sea un número entero válido
+  const limitValue = parseInt(limit);
+
   let sql = `SELECT id,
-    questiontext AS "questionText",
-    optiona AS "optionA",
-    optionb AS "optionB",
-    optionc AS "optionC",
-    optiond AS "optionD",
-    idsubject AS "idSubject"
-    FROM "Question" WHERE idexamcategory = $1 AND status = 'approved'`;
+    questionText,
+    optionA,
+    optionB,
+    optionC,
+    optionD,
+    idSubject
+    FROM Question 
+    WHERE idExamCategory = ? AND status = 'approved'`;
+
   const params = [examCategoryId];
-  if (subjectId) {
+
+  if (subjectId !== null && subjectId !== undefined) {
+    sql += ` AND idSubject = ?`;
     params.push(subjectId);
-    sql += ` AND idsubject = $${params.length}`;
   }
-  sql += ` ORDER BY RANDOM() LIMIT $${params.length + 1}`;
-  params.push(limit);
+
+  // IMPORTANTE: No usar ? para LIMIT, usar el valor directamente
+  sql += ` ORDER BY RAND() LIMIT ${limitValue}`;
+
+  console.log("SQL FINAL:", sql);
+  console.log("PARAMS FINAL:", params);
+
   const res = await query(sql, params);
   return res.rows;
 };

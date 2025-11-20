@@ -6,16 +6,19 @@ export const createUser = async ({
   password,
   role = "user",
 }) => {
-  const sql = `INSERT INTO "User" (username, email, password, role)
-    VALUES ($1, $2, $3, $4)
-    RETURNING id, username, email, role, createdat AS "createdAt"`;
+  const sql = `INSERT INTO User (username, email, password, role)
+    VALUES (?, ?, ?, ?)`;
   const res = await query(sql, [username, email, password, role]);
-  return res.rows[0];
+
+  // Obtener el usuario recién creado
+  const userId = res.rows.insertId;
+  const user = await findById(userId);
+  return user;
 };
 
 export const findById = async (id) => {
   const res = await query(
-    `SELECT id, username, email, role, createdat AS "createdAt" FROM "User" WHERE id = $1`,
+    `SELECT id, username, email, role, createdAt FROM User WHERE id = ?`,
     [id]
   );
   return res.rows[0];
@@ -23,7 +26,7 @@ export const findById = async (id) => {
 
 export const findByEmail = async (email) => {
   const res = await query(
-    `SELECT * FROM "User" WHERE lower(email) = lower($1) LIMIT 1`,
+    `SELECT * FROM User WHERE LOWER(email) = LOWER(?) LIMIT 1`,
     [email]
   );
   return res.rows[0];
@@ -31,20 +34,21 @@ export const findByEmail = async (email) => {
 
 export const findByUsername = async (username) => {
   const res = await query(
-    `SELECT * FROM "User" WHERE lower(username) = lower($1) LIMIT 1`,
+    `SELECT * FROM User WHERE LOWER(username) = LOWER(?) LIMIT 1`,
     [username]
   );
   return res.rows[0];
 };
 
-export const getRanking = async (examCategoryId, limit = 100) =>
-  query(
-    `SELECT u.id as "userId", u.username, MAX(e.score) as "bestScore"
-     FROM "Exam" e
-     JOIN "User" u ON u.id = e.iduser
-     WHERE e.idexamcategory = $1
+export const getRanking = async (examCategoryId, limit = 100) => {
+  const limitValue = parseInt(limit);
+  const sql = `SELECT u.id as userId, u.username, MAX(e.score) as bestScore
+     FROM Exam e
+     JOIN User u ON u.id = e.idUser
+     WHERE e.idExamCategory = ?
      GROUP BY u.id, u.username
-     ORDER BY "bestScore" DESC
-     LIMIT $2`,
-    [examCategoryId, limit]
-  ).then((r) => r.rows);
+     ORDER BY bestScore DESC
+     LIMIT ${limitValue}`;
+  const res = await query(sql, [examCategoryId]);
+  return res.rows;
+};

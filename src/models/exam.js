@@ -2,34 +2,30 @@ import { query } from "../config/database.js";
 
 export const createExam = async ({ idUser, idExamCategory }) => {
   const res = await query(
-    `INSERT INTO "Exam" (iduser, idexamcategory) VALUES ($1, $2) RETURNING id, iduser AS "idUser", idexamcategory AS "idExamCategory", score, takenat AS "takenAt"`,
+    `INSERT INTO Exam (idUser, idExamCategory) VALUES (?, ?)`,
     [idUser, idExamCategory]
   );
-  return res.rows[0];
+
+  // En MySQL, insertId está en el objeto rows directamente
+  const newExam = await getById(res.rows.insertId);
+  return newExam;
 };
 
 export const getById = async (id) => {
   const res = await query(
-    `SELECT id, iduser AS "idUser", idexamcategory AS "idExamCategory", score, takenat AS "takenAt" FROM "Exam" WHERE id = $1`,
+    `SELECT id, idUser, idExamCategory, score, takenAt FROM Exam WHERE id = ?`,
     [id]
   );
   return res.rows[0];
 };
 
-export const updateScore = async (id, score, client = null) => {
-  if (client) {
-    await client.query(`UPDATE "Exam" SET score = $1 WHERE id = $2`, [
-      score,
-      id,
-    ]);
-  } else {
-    await query(`UPDATE "Exam" SET score = $1 WHERE id = $2`, [score, id]);
-  }
+export const updateScore = async (id, score) => {
+  await query(`UPDATE Exam SET score = ? WHERE id = ?`, [score, id]);
 };
 
 export const getByUser = async (idUser) => {
   const res = await query(
-    `SELECT id, iduser AS "idUser", idexamcategory AS "idExamCategory", score, takenat AS "takenAt" FROM "Exam" WHERE iduser = $1 ORDER BY takenat DESC`,
+    `SELECT id, idUser, idExamCategory, score, takenAt FROM Exam WHERE idUser = ? ORDER BY takenAt DESC`,
     [idUser]
   );
   return res.rows;

@@ -1,56 +1,49 @@
-import { Pool } from "pg";
+import mysql from "mysql2/promise";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const {
   NODE_ENV = "development",
-  DATABASE_URL,
-  PG_HOST = "127.0.0.1",
-  PG_PORT = 5432,
-  PG_USER = "postgres",
-  PG_PASSWORD = "",
-  PG_DATABASE = "exam_app",
-  PG_SSL = "false",
+  MYSQL_HOST = "127.0.0.1",
+  MYSQL_PORT = 3306,
+  MYSQL_USER = "root",
+  MYSQL_PASSWORD = "",
+  MYSQL_DATABASE = "exam_app",
 } = process.env;
 
-let poolConfig;
-if (DATABASE_URL) {
-  poolConfig = {
-    connectionString: DATABASE_URL,
-    ssl:
-      NODE_ENV === "production" || PG_SSL === "true"
-        ? { rejectUnauthorized: false }
-        : false,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-  };
-} else {
-  poolConfig = {
-    host: PG_HOST,
-    port: Number(PG_PORT),
-    user: PG_USER,
-    password: PG_PASSWORD,
-    database: PG_DATABASE,
-    ssl: PG_SSL === "true" ? { rejectUnauthorized: false } : false,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-  };
-}
+const poolConfig = {
+  host: MYSQL_HOST,
+  port: Number(MYSQL_PORT),
+  user: MYSQL_USER,
+  password: MYSQL_PASSWORD,
+  database: MYSQL_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  connectTimeout: 10000,
+};
 
-const pool = new Pool(poolConfig);
+const pool = mysql.createPool(poolConfig);
 
 pool.on("error", (err) => {
-  console.error("Unexpected error on idle pg client", err);
+  console.error("Unexpected error on idle MySQL client", err);
 });
 
 const query = async (text, params) => {
   const start = Date.now();
-  const res = await pool.query(text, params);
+  const [rows] = await pool.execute(text, params);
   const duration = Date.now() - start;
   if (NODE_ENV !== "production") {
-    console.debug("pg query", { text, duration, rows: res.rowCount });
+    console.debug("MySQL query", { text, duration, rows: Array.isArray(rows) ? rows.length : 'N/A' });
   }
-  return res;
+  
+  // Para INSERT, rows contiene insertId y affectedRows
+  // Para SELECT, rows es un array
+  return { 
+    rows: Array.isArray(rows) ? rows : rows,
+    rowCount: Array.isArray(rows) ? rows.length : rows.affectedRows 
+  };
 };
 
 export { pool, query };
